@@ -14,7 +14,7 @@ module prediction_market::defi_prediction_market {
     /* Error Constants */
     const ENotMarketOwner: u64 = 0;
     const EInsufficientBalance: u64 = 1;
-    const EMaxMarketsReached: u64 = 2;
+    const EMarketOwnerAlreadyHasMarket: u64 = 2;
     const EMarketAlreadyResolved: u64 = 3;
     const EMarketNotResolved: u64 = 4;
 
@@ -23,12 +23,7 @@ module prediction_market::defi_prediction_market {
         id: UID
     }
 
-    struct MarketOwnerCap has key, store {
-        id: UID,
-        market_id: ID
-    }
-
-    struct OwnerAddressVector has key, store {
+    struct MarketOwners has key, store {
         id: UID,
         addresses: vector<address>
     }
@@ -63,23 +58,23 @@ module prediction_market::defi_prediction_market {
         let addresses = vector::empty<address>();
         let admin_address = tx_context::sender(ctx);
 
-        let owner_address_vector = OwnerAddressVector {
+        let market_owners = MarketOwners {
             id: object::new(ctx),
             addresses,
         };
 
-        transfer::share_object(owner_address_vector);
+        transfer::share_object(market_owners);
         transfer::transfer(admin, admin_address);
     }
 
     public entry fun create_market(
         name: String,
         clock: &Clock,
-        address_vector: &mut OwnerAddressVector,
+        market_owners: &mut MarketOwners,
         ctx: &mut TxContext
     ) {
         let market_owner_address = tx_context::sender(ctx);
-        assert!(!vector::contains<address>(&address_vector.addresses, &market_owner_address), EMaxMarketsReached);
+        assert!(vector::length(&market_owners.addresses) == 0 || !vector::contains<address>(&market_owners.addresses, &market_owner_address), EMarketOwnerAlreadyHasMarket);
 
         let market_uid = object::new(ctx);
         let market_id = object::uid_to_inner(&market_uid);
@@ -96,17 +91,8 @@ module prediction_market::defi_prediction_market {
             resolved_at: none()
         };
 
-        let market_owner_id = object::new(ctx);
-
-        let market_owner = MarketOwnerCap {
-            id: market_owner_id,
-            market_id
-        };
-
-        vector::push_back<address>(&mut address_vector.addresses, market_owner_address);
-
-        transfer::share_object(market);
-        transfer::transfer(market_owner, market_owner_address);
+        transfer::transfer_to_object(market, market_owner_address);
+        vector::push_back<address>(&mut market_owners.addresses, market_owner_address);
     }
 
     public entry fun place_bet(
@@ -147,15 +133,16 @@ module prediction_market::defi_prediction_market {
         ctx: &mut TxContext
     ) {
         assert!(!market.resolved, EMarketAlreadyResolved);
+        assert!(market.creator == tx_context::sender(ctx), ENotMarketOwner); // Added security check
 
         market.resolved = true;
         market.resolution = some(resolution);
         market.resolved_at = some(clock::timestamp_ms(clock));
 
         if (resolution) {
-            transfer::public_transfer(coin::from_balance(market.yes_pool, ctx), market.creator);
+            transfer::transfer(coin::from_balance(market.yes_pool, ctx), market.creator);
         } else {
-            transfer::public_transfer(coin::from_balance(market.no_pool, ctx), market.creator);
+            transfer::transfer(coin::from_balance(market.no_pool, ctx), market.creator);
         }
     }
 
@@ -167,6 +154,7 @@ module prediction_market::defi_prediction_market {
     ) {
         assert!(market.resolved, EMarketNotResolved);
         assert!(position.owner == tx_context::sender(ctx), ENotMarketOwner);
+        assert!(market.resolution.unwrap() == position.bet, EMarketNotResolved); // Added security check
 
         let winnings = if (position.bet == market.resolution.unwrap()) {
             position.amount
@@ -175,13 +163,8 @@ module prediction_market::defi_prediction_market {
         };
 
         if (winnings > 0) {
-            let winnings_balance = if (position.bet) {
-                coin::take(&mut market.yes_pool, winnings, ctx)
-            } else {
-                coin::take(&mut market.no_pool, winnings, ctx)
-            };
-
-            transfer::public_transfer(winnings_balance, tx_context::sender(ctx));
+            let winnings_balance = coin::take(&mut (if (position.bet) market.yes_pool else market.no_pool), winnings, ctx);
+            transfer::transfer(winnings_balance, tx_context::sender(ctx));
         }
 
         object::delete(position);
