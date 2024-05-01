@@ -15,14 +15,4 @@ The Decentralized Prediction Market is a blockchain-based application that allow
 - **Market Details**: Users can retrieve key information about a prediction market, such as its resolution status, pool balances, and the resolved outcome (if available).
 - **Access Control**: The application includes robust access control mechanisms to ensure secure operations.
 - **Event Logging**: Key events, such as placing bets, resolving markets, and claiming winnings, are logged for transparency.
-
-## Getting Started
-
-### Prerequisites
-
-- Sui blockchain client
-- Move programming language compiler
-
-### Installation
-
-1. Clone the repository:
+  
