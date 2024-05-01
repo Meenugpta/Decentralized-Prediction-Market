@@ -9,11 +9,12 @@ module DefiPredictionMarket::defi_prediction_market {
     use sui::balance::{Self, Balance};
     use std::option::{Option, none, some};
     use sui::tx_context::{Self, TxContext, sender};
+    use sui::table::{Self, Table};
 
     /* Error Constants */
     const ENotMarketOwner: u64 = 0;
     const EInsufficientBalance: u64 = 1;
-    const EMaxMarketsReached: u64 = 2;
+    const EAlreadyBet: u64 = 2;
     const EMarketAlreadyResolved: u64 = 3;
     const EMarketNotResolved: u64 = 4;
 
@@ -33,6 +34,8 @@ module DefiPredictionMarket::defi_prediction_market {
         resolved: bool,
         creator: address,
         balance: Balance<SUI>,
+        winner: address,
+        users: Table<address, bool>,
         resolution: Option<bool>,
         started_at: u64,
         resolved_at: Option<u64>
@@ -67,6 +70,8 @@ module DefiPredictionMarket::defi_prediction_market {
             resolved: false,
             creator: owner,
             balance: balance::zero(),
+            winner: owner,
+            users: table::new(ctx),
             resolution: none(),
             started_at: clock::timestamp_ms(c),
             resolved_at: none()
@@ -88,16 +93,20 @@ module DefiPredictionMarket::defi_prediction_market {
         ctx: &mut TxContext
     ) : Position {
         assert!(!market.resolved, EMarketAlreadyResolved);
+        assert!(coin::value(&amount) > balance::value(&market.balance), EInsufficientBalance);
+        assert!(!table::contains(&market.users, sender(ctx)), EAlreadyBet);
+        // set the winner 
+        market.winner = sender(ctx);
+        table::add(&mut market.users, sender(ctx), true);
 
         let bet_amount = coin::value(&amount);
-        let better_address = sender(ctx);
 
         balance::join(&mut market.balance, coin::into_balance(amount));
 
         let position = Position {
             id: object::new(ctx),
             market: object::uid_to_inner(&market.id),
-            owner: better_address,
+            owner: sender(ctx),
             amount: bet_amount,
             placed_at: clock::timestamp_ms(c)
         };
