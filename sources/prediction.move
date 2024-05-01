@@ -81,12 +81,12 @@ module DefiPredictionMarket::defi_prediction_market {
         transfer::transfer(market_owner, owner);
     }
 
-    public entry fun place_bet(
+    public fun place_bet(
         market: &mut PredictionMarket,
         c: &Clock,
         amount: Coin<SUI>,
         ctx: &mut TxContext
-    ) {
+    ) : Position {
         assert!(!market.resolved, EMarketAlreadyResolved);
 
         let bet_amount = coin::value(&amount);
@@ -101,8 +101,7 @@ module DefiPredictionMarket::defi_prediction_market {
             amount: bet_amount,
             placed_at: clock::timestamp_ms(c)
         };
-
-        transfer::share_object(position);
+        position
     }
 
     public fun resolve_market(
@@ -121,32 +120,17 @@ module DefiPredictionMarket::defi_prediction_market {
         coin_
     }
 
-    // public entry fun claim_winnings(
-    //     position: &mut Position,
-    //     market: &mut PredictionMarket,
-    //     clock: &Clock,
-    //     ctx: &mut TxContext
-    // ) {
-    //     assert!(market.resolved, EMarketNotResolved);
-    //     assert!(position.owner == tx_context::sender(ctx), ENotMarketOwner);
+    public fun claim_winnings(
+        position: &mut Position,
+        market: &mut PredictionMarket,
+        ctx: &mut TxContext
+    ) : Coin<SUI> {
+        assert!(market.resolved, EMarketNotResolved);
+        assert!(position.market == object::id(market), ENotMarketOwner);
 
-    //     let winnings = if (position.bet == market.resolution.unwrap()) {
-    //         position.amount
-    //     } else {
-    //         0
-    //     };
-
-    //     if (winnings > 0) {
-    //         let winnings_balance = if (position.bet) {
-    //             coin::take(&mut market.yes_pool, winnings, ctx)
-    //         } else {
-    //             coin::take(&mut market.no_pool, winnings, ctx)
-    //         };
-
-    //         transfer::public_transfer(winnings_balance, tx_context::sender(ctx));
-    //     };
-
-    //     object::delete(position);
-    // }
+        let balance_ = balance::withdraw_all(&mut market.balance);
+        let coin_ = coin::from_balance(balance_, ctx);
+        coin_
+    }
 
 }
