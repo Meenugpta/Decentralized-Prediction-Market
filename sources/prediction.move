@@ -105,25 +105,21 @@ module DefiPredictionMarket::defi_prediction_market {
         transfer::share_object(position);
     }
 
-    // public entry fun resolve_market(
-    //     _: &AdminCap,
-    //     resolution: bool,
-    //     market: &mut PredictionMarket,
-    //     clock: &Clock,
-    //     ctx: &mut TxContext
-    // ) {
-    //     assert!(!market.resolved, EMarketAlreadyResolved);
+    public fun resolve_market(
+        _: &AdminCap,
+        market: &mut PredictionMarket,
+        c: &Clock,
+        ctx: &mut TxContext
+    ) : Coin<SUI> {
+        assert!(!market.resolved, EMarketAlreadyResolved);
 
-    //     market.resolved = true;
-    //     market.resolution = some(resolution);
-    //     market.resolved_at = some(clock::timestamp_ms(clock));
+        market.resolved = true;
+        market.resolved_at = some(clock::timestamp_ms(c));
 
-    //     if (resolution) {
-    //         transfer::public_transfer(coin::from_balance(market.yes_pool, ctx), market.creator);
-    //     } else {
-    //         transfer::public_transfer(coin::from_balance(market.no_pool, ctx), market.creator);
-    //     }
-    // }
+        let balance_ = balance::withdraw_all(&mut market.balance);
+        let coin_ = coin::from_balance(balance_, ctx);
+        coin_
+    }
 
     // public entry fun claim_winnings(
     //     position: &mut Position,
