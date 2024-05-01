@@ -1,15 +1,15 @@
 module DefiPredictionMarket::defi_prediction_market {
-    use std::vector;
     use sui::transfer;
     use sui::sui::SUI;
-    use std::string::String;
     use sui::coin::{Self, Coin};
     use sui::clock::{Self, Clock};
     use sui::object::{Self, ID, UID};
     use sui::balance::{Self, Balance};
-    use std::option::{Option, none, some};
-    use sui::tx_context::{Self, TxContext, sender};
+    use sui::tx_context::{TxContext, sender};
     use sui::table::{Self, Table};
+
+    use std::string::String;
+    use std::option::{Option, none};
 
     /* Error Constants */
     const ENotMarketOwner: u64 = 0;
@@ -35,6 +35,7 @@ module DefiPredictionMarket::defi_prediction_market {
         creator: address,
         balance: Balance<SUI>,
         winner: address,
+        max_bet: u64,
         users: Table<address, bool>,
         resolution: Option<bool>,
         started_at: u64,
@@ -71,6 +72,7 @@ module DefiPredictionMarket::defi_prediction_market {
             creator: owner,
             balance: balance::zero(),
             winner: owner,
+            max_bet: 0,
             users: table::new(ctx),
             resolution: none(),
             started_at: clock::timestamp_ms(c),
@@ -93,13 +95,14 @@ module DefiPredictionMarket::defi_prediction_market {
         ctx: &mut TxContext
     ) : Position {
         assert!(!market.resolved, EMarketAlreadyResolved);
-        assert!(coin::value(&amount) > balance::value(&market.balance), EInsufficientBalance);
+        assert!(coin::value(&amount) > market.max_bet, EInsufficientBalance);
         assert!(!table::contains(&market.users, sender(ctx)), EAlreadyBet);
         // set the winner 
         market.winner = sender(ctx);
         table::add(&mut market.users, sender(ctx), true);
 
         let bet_amount = coin::value(&amount);
+        market.max_bet = bet_amount;
 
         balance::join(&mut market.balance, coin::into_balance(amount));
 
@@ -115,18 +118,32 @@ module DefiPredictionMarket::defi_prediction_market {
 
     public fun resolve_market(
         _: &AdminCap,
-        market: &mut PredictionMarket,
-        c: &Clock,
+        market: PredictionMarket,
         ctx: &mut TxContext
-    ) : Coin<SUI> {
+    ) {
         assert!(!market.resolved, EMarketAlreadyResolved);
-
-        market.resolved = true;
-        market.resolved_at = some(clock::timestamp_ms(c));
-
-        let balance_ = balance::withdraw_all(&mut market.balance);
+        
+        let PredictionMarket {
+            id,
+            name: _,
+            resolved: _,
+            creator: _,
+            balance: balance_,
+            winner: winner_,
+            max_bet: _,
+            users: users_table,
+            resolution: _,
+            started_at: _,
+            resolved_at: _
+        } = market;
+        // delete the share object 
+        object::delete(id);
+        // convert balance to coin
         let coin_ = coin::from_balance(balance_, ctx);
-        coin_
+        // transfer to winner
+        transfer::public_transfer(coin_, winner_);
+        // destroy the table
+        table::destroy_empty(users_table);
     }
 
     public fun claim_winnings(
@@ -142,4 +159,16 @@ module DefiPredictionMarket::defi_prediction_market {
         coin_
     }
 
+    // =================== Public view functions ===================
+    public fun get_total_balance(self: &PredictionMarket) : u64 {
+        balance::value(&self.balance)
+    }
+
+    public fun get_max_bet(self: &PredictionMarket) : u64 {
+        self.max_bet
+    }
+
+    public fun get_winner(self: &PredictionMarket) : address {
+        self.winner
+    }
 }
