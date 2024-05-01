@@ -145,20 +145,7 @@ module DefiPredictionMarket::defi_prediction_market {
         // destroy the table
         table::destroy_empty(users_table);
     }
-
-    public fun claim_winnings(
-        position: &mut Position,
-        market: &mut PredictionMarket,
-        ctx: &mut TxContext
-    ) : Coin<SUI> {
-        assert!(market.resolved, EMarketNotResolved);
-        assert!(position.market == object::id(market), ENotMarketOwner);
-
-        let balance_ = balance::withdraw_all(&mut market.balance);
-        let coin_ = coin::from_balance(balance_, ctx);
-        coin_
-    }
-
+    
     // =================== Public view functions ===================
     public fun get_total_balance(self: &PredictionMarket) : u64 {
         balance::value(&self.balance)
