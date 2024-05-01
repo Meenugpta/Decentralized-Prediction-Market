@@ -8,7 +8,7 @@ module DefiPredictionMarket::defi_prediction_market {
     use sui::object::{Self, ID, UID};
     use sui::balance::{Self, Balance};
     use std::option::{Option, none, some};
-    use sui::tx_context::{Self, TxContext};
+    use sui::tx_context::{Self, TxContext, sender};
 
     /* Error Constants */
     const ENotMarketOwner: u64 = 0;
@@ -18,18 +18,13 @@ module DefiPredictionMarket::defi_prediction_market {
     const EMarketNotResolved: u64 = 4;
 
     /* Structs */
-    struct AdminCap has key, store {
+    struct AdminCap has key {
         id: UID
     }
 
     struct MarketOwnerCap has key, store {
         id: UID,
         market_id: ID
-    }
-
-    struct OwnerAddressVector has key, store {
-        id: UID,
-        addresses: vector<address>
     }
 
     struct PredictionMarket has key, store {
@@ -55,30 +50,15 @@ module DefiPredictionMarket::defi_prediction_market {
 
     /* Functions */
     fun init(ctx: &mut TxContext) {
-        let admin = AdminCap {
-            id: object::new(ctx)
-        };
-
-        let addresses = vector::empty<address>();
-        let admin_address = tx_context::sender(ctx);
-
-        let owner_address_vector = OwnerAddressVector {
-            id: object::new(ctx),
-            addresses,
-        };
-
-        transfer::share_object(owner_address_vector);
-        transfer::transfer(admin, admin_address);
+        transfer::transfer(AdminCap{id: object::new(ctx)}, sender(ctx));
     }
 
     public entry fun create_market(
         name: String,
         clock: &Clock,
-        address_vector: &mut OwnerAddressVector,
         ctx: &mut TxContext
     ) {
         let market_owner_address = tx_context::sender(ctx);
-        assert!(!vector::contains<address>(&address_vector.addresses, &market_owner_address), EMaxMarketsReached);
 
         let market_uid = object::new(ctx);
         let market_id = object::uid_to_inner(&market_uid);
@@ -101,8 +81,6 @@ module DefiPredictionMarket::defi_prediction_market {
             id: market_owner_id,
             market_id
         };
-
-        vector::push_back<address>(&mut address_vector.addresses, market_owner_address);
 
         transfer::share_object(market);
         transfer::transfer(market_owner, market_owner_address);
