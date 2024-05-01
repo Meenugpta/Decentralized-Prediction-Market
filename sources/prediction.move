@@ -1,5 +1,4 @@
-#[allow(lint(self_transfer))]
-module prediction_market::defi_prediction_market {
+module DefiPredictionMarket::defi_prediction_market {
     use std::vector;
     use sui::transfer;
     use sui::sui::SUI;
@@ -125,7 +124,7 @@ module prediction_market::defi_prediction_market {
             balance::join(&mut market.yes_pool, coin::into_balance(amount));
         } else {
             balance::join(&mut market.no_pool, coin::into_balance(amount));
-        }
+        };
 
         let position = Position {
             id: object::new(ctx),
@@ -139,53 +138,53 @@ module prediction_market::defi_prediction_market {
         transfer::share_object(position);
     }
 
-    public entry fun resolve_market(
-        _: &AdminCap,
-        resolution: bool,
-        market: &mut PredictionMarket,
-        clock: &Clock,
-        ctx: &mut TxContext
-    ) {
-        assert!(!market.resolved, EMarketAlreadyResolved);
+    // public entry fun resolve_market(
+    //     _: &AdminCap,
+    //     resolution: bool,
+    //     market: &mut PredictionMarket,
+    //     clock: &Clock,
+    //     ctx: &mut TxContext
+    // ) {
+    //     assert!(!market.resolved, EMarketAlreadyResolved);
 
-        market.resolved = true;
-        market.resolution = some(resolution);
-        market.resolved_at = some(clock::timestamp_ms(clock));
+    //     market.resolved = true;
+    //     market.resolution = some(resolution);
+    //     market.resolved_at = some(clock::timestamp_ms(clock));
 
-        if (resolution) {
-            transfer::public_transfer(coin::from_balance(market.yes_pool, ctx), market.creator);
-        } else {
-            transfer::public_transfer(coin::from_balance(market.no_pool, ctx), market.creator);
-        }
-    }
+    //     if (resolution) {
+    //         transfer::public_transfer(coin::from_balance(market.yes_pool, ctx), market.creator);
+    //     } else {
+    //         transfer::public_transfer(coin::from_balance(market.no_pool, ctx), market.creator);
+    //     }
+    // }
 
-    public entry fun claim_winnings(
-        position: &mut Position,
-        market: &mut PredictionMarket,
-        clock: &Clock,
-        ctx: &mut TxContext
-    ) {
-        assert!(market.resolved, EMarketNotResolved);
-        assert!(position.owner == tx_context::sender(ctx), ENotMarketOwner);
+    // public entry fun claim_winnings(
+    //     position: &mut Position,
+    //     market: &mut PredictionMarket,
+    //     clock: &Clock,
+    //     ctx: &mut TxContext
+    // ) {
+    //     assert!(market.resolved, EMarketNotResolved);
+    //     assert!(position.owner == tx_context::sender(ctx), ENotMarketOwner);
 
-        let winnings = if (position.bet == market.resolution.unwrap()) {
-            position.amount
-        } else {
-            0
-        };
+    //     let winnings = if (position.bet == market.resolution.unwrap()) {
+    //         position.amount
+    //     } else {
+    //         0
+    //     };
 
-        if (winnings > 0) {
-            let winnings_balance = if (position.bet) {
-                coin::take(&mut market.yes_pool, winnings, ctx)
-            } else {
-                coin::take(&mut market.no_pool, winnings, ctx)
-            };
+    //     if (winnings > 0) {
+    //         let winnings_balance = if (position.bet) {
+    //             coin::take(&mut market.yes_pool, winnings, ctx)
+    //         } else {
+    //             coin::take(&mut market.no_pool, winnings, ctx)
+    //         };
 
-            transfer::public_transfer(winnings_balance, tx_context::sender(ctx));
-        }
+    //         transfer::public_transfer(winnings_balance, tx_context::sender(ctx));
+    //     };
 
-        object::delete(position);
-    }
+    //     object::delete(position);
+    // }
 
     public entry fun get_market_details(market: &PredictionMarket): (bool, u64, u64, Option<bool>) {
         (market.resolved, balance::value(&market.yes_pool), balance::value(&market.no_pool), market.resolution)
