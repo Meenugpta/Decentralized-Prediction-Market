@@ -32,8 +32,7 @@ module DefiPredictionMarket::defi_prediction_market {
         name: String,
         resolved: bool,
         creator: address,
-        yes_pool: Balance<SUI>,
-        no_pool: Balance<SUI>,
+        balance: Balance<SUI>,
         resolution: Option<bool>,
         started_at: u64,
         resolved_at: Option<u64>
@@ -41,9 +40,8 @@ module DefiPredictionMarket::defi_prediction_market {
 
     struct Position has key, store {
         id: UID,
-        owner: address,
         market: ID,
-        bet: bool,
+        owner: address,
         amount: u64,
         placed_at: u64
     }
@@ -68,8 +66,7 @@ module DefiPredictionMarket::defi_prediction_market {
             name,
             resolved: false,
             creator: owner,
-            yes_pool: balance::zero(),
-            no_pool: balance::zero(),
+            balance: balance::zero(),
             resolution: none(),
             started_at: clock::timestamp_ms(c),
             resolved_at: none()
@@ -85,30 +82,24 @@ module DefiPredictionMarket::defi_prediction_market {
     }
 
     public entry fun place_bet(
-        bet: bool,
-        amount: Coin<SUI>,
         market: &mut PredictionMarket,
-        clock: &Clock,
+        c: &Clock,
+        amount: Coin<SUI>,
         ctx: &mut TxContext
     ) {
         assert!(!market.resolved, EMarketAlreadyResolved);
 
         let bet_amount = coin::value(&amount);
-        let better_address = tx_context::sender(ctx);
+        let better_address = sender(ctx);
 
-        if (bet) {
-            balance::join(&mut market.yes_pool, coin::into_balance(amount));
-        } else {
-            balance::join(&mut market.no_pool, coin::into_balance(amount));
-        };
+        balance::join(&mut market.balance, coin::into_balance(amount));
 
         let position = Position {
             id: object::new(ctx),
-            owner: better_address,
             market: object::uid_to_inner(&market.id),
-            bet,
+            owner: better_address,
             amount: bet_amount,
-            placed_at: clock::timestamp_ms(clock)
+            placed_at: clock::timestamp_ms(c)
         };
 
         transfer::share_object(position);
@@ -162,7 +153,4 @@ module DefiPredictionMarket::defi_prediction_market {
     //     object::delete(position);
     // }
 
-    public entry fun get_market_details(market: &PredictionMarket): (bool, u64, u64, Option<bool>) {
-        (market.resolved, balance::value(&market.yes_pool), balance::value(&market.no_pool), market.resolution)
-    }
 }
