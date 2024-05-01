@@ -54,11 +54,11 @@ module DefiPredictionMarket::defi_prediction_market {
     }
 
     public entry fun create_market(
+        c: &Clock,
         name: String,
-        clock: &Clock,
         ctx: &mut TxContext
     ) {
-        let market_owner_address = tx_context::sender(ctx);
+        let owner = sender(ctx);
 
         let market_uid = object::new(ctx);
         let market_id = object::uid_to_inner(&market_uid);
@@ -67,23 +67,21 @@ module DefiPredictionMarket::defi_prediction_market {
             id: market_uid,
             name,
             resolved: false,
-            creator: market_owner_address,
+            creator: owner,
             yes_pool: balance::zero(),
             no_pool: balance::zero(),
             resolution: none(),
-            started_at: clock::timestamp_ms(clock),
+            started_at: clock::timestamp_ms(c),
             resolved_at: none()
         };
 
-        let market_owner_id = object::new(ctx);
-
         let market_owner = MarketOwnerCap {
-            id: market_owner_id,
+            id: object::new(ctx),
             market_id
         };
 
         transfer::share_object(market);
-        transfer::transfer(market_owner, market_owner_address);
+        transfer::transfer(market_owner, owner);
     }
 
     public entry fun place_bet(
