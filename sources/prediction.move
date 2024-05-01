@@ -6,19 +6,19 @@ module prediction_market::defi_prediction_market {
     use std::string::String;
     use sui::coin::{Self, Coin};
     use sui::clock::{Self, Clock};
-    use sui::object::{Self, ID, UID};
     use sui::balance::{Self, Balance};
     use std::option::{Option, none, some};
     use sui::tx_context::{Self, TxContext};
+    use sui::error;
 
     /* Error Constants */
     const ENotMarketOwner: u64 = 0;
+    const ENotMarketOwnerMsg: vector<u8> = b"You are not the owner of this market";
     const EInsufficientBalance: u64 = 1;
     const EMaxMarketsReached: u64 = 2;
     const EMarketAlreadyResolved: u64 = 3;
     const EMarketNotResolved: u64 = 4;
 
-    /* Structs */
     struct AdminCap has key, store {
         id: UID
     }
@@ -28,7 +28,7 @@ module prediction_market::defi_prediction_market {
         market_id: ID
     }
 
-    struct OwnerAddressVector has key, store {
+    struct OwnerAddresses has key, store {
         id: UID,
         addresses: vector<address>
     }
@@ -54,8 +54,7 @@ module prediction_market::defi_prediction_market {
         placed_at: u64
     }
 
-    /* Functions */
-    fun init(ctx: &mut TxContext) {
+    public entry fun init(ctx: &mut TxContext) {
         let admin = AdminCap {
             id: object::new(ctx)
         };
@@ -63,7 +62,7 @@ module prediction_market::defi_prediction_market {
         let addresses = vector::empty<address>();
         let admin_address = tx_context::sender(ctx);
 
-        let owner_address_vector = OwnerAddressVector {
+        let owner_address_vector = OwnerAddresses {
             id: object::new(ctx),
             addresses,
         };
@@ -75,7 +74,7 @@ module prediction_market::defi_prediction_market {
     public entry fun create_market(
         name: String,
         clock: &Clock,
-        address_vector: &mut OwnerAddressVector,
+        address_vector: &OwnerAddresses,
         ctx: &mut TxContext
     ) {
         let market_owner_address = tx_context::sender(ctx);
@@ -119,7 +118,7 @@ module prediction_market::defi_prediction_market {
         assert!(!market.resolved, EMarketAlreadyResolved);
 
         let bet_amount = coin::value(&amount);
-        let better_address = tx_context::sender(ctx);
+        let bettor_address = tx_context::sender(ctx);
 
         if (bet) {
             balance::join(&mut market.yes_pool, coin::into_balance(amount));
@@ -129,7 +128,7 @@ module prediction_market::defi_prediction_market {
 
         let position = Position {
             id: object::new(ctx),
-            owner: better_address,
+            owner: bettor_address,
             market: object::uid_to_inner(&market.id),
             bet,
             amount: bet_amount,
@@ -166,7 +165,7 @@ module prediction_market::defi_prediction_market {
         ctx: &mut TxContext
     ) {
         assert!(market.resolved, EMarketNotResolved);
-        assert!(position.owner == tx_context::sender(ctx), ENotMarketOwner);
+        assert!(position.owner == tx_context::sender(ctx), error::invalid_argument(ENotMarketOwner, ENotMarketOwnerMsg));
 
         let winnings = if (position.bet == market.resolution.unwrap()) {
             position.amount
