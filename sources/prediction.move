@@ -1,25 +1,25 @@
-#[allow(lint(self_transfer))]
-module prediction_market::defi_prediction_market {
-    use std::vector;
+module DefiPredictionMarket::defi_prediction_market {
     use sui::transfer;
     use sui::sui::SUI;
-    use std::string::String;
     use sui::coin::{Self, Coin};
     use sui::clock::{Self, Clock};
     use sui::object::{Self, ID, UID};
     use sui::balance::{Self, Balance};
-    use std::option::{Option, none, some};
-    use sui::tx_context::{Self, TxContext};
+    use sui::tx_context::{TxContext, sender};
+    use sui::table::{Self, Table};
+
+    use std::string::String;
+    use std::option::{Option, none};
 
     /* Error Constants */
     const ENotMarketOwner: u64 = 0;
     const EInsufficientBalance: u64 = 1;
-    const EMaxMarketsReached: u64 = 2;
+    const EAlreadyBet: u64 = 2;
     const EMarketAlreadyResolved: u64 = 3;
     const EMarketNotResolved: u64 = 4;
 
     /* Structs */
-    struct AdminCap has key, store {
+    struct AdminCap has key {
         id: UID
     }
 
@@ -28,18 +28,15 @@ module prediction_market::defi_prediction_market {
         market_id: ID
     }
 
-    struct OwnerAddressVector has key, store {
-        id: UID,
-        addresses: vector<address>
-    }
-
     struct PredictionMarket has key, store {
         id: UID,
         name: String,
         resolved: bool,
         creator: address,
-        yes_pool: Balance<SUI>,
-        no_pool: Balance<SUI>,
+        balance: Balance<SUI>,
+        winner: address,
+        max_bet: u64,
+        users: Table<address, bool>,
         resolution: Option<bool>,
         started_at: u64,
         resolved_at: Option<u64>
@@ -47,39 +44,23 @@ module prediction_market::defi_prediction_market {
 
     struct Position has key, store {
         id: UID,
-        owner: address,
         market: ID,
-        bet: bool,
+        owner: address,
         amount: u64,
         placed_at: u64
     }
 
     /* Functions */
     fun init(ctx: &mut TxContext) {
-        let admin = AdminCap {
-            id: object::new(ctx)
-        };
-
-        let addresses = vector::empty<address>();
-        let admin_address = tx_context::sender(ctx);
-
-        let owner_address_vector = OwnerAddressVector {
-            id: object::new(ctx),
-            addresses,
-        };
-
-        transfer::share_object(owner_address_vector);
-        transfer::transfer(admin, admin_address);
+        transfer::transfer(AdminCap{id: object::new(ctx)}, sender(ctx));
     }
 
     public entry fun create_market(
+        c: &Clock,
         name: String,
-        clock: &Clock,
-        address_vector: &mut OwnerAddressVector,
         ctx: &mut TxContext
     ) {
-        let market_owner_address = tx_context::sender(ctx);
-        assert!(!vector::contains<address>(&address_vector.addresses, &market_owner_address), EMaxMarketsReached);
+        let owner = sender(ctx);
 
         let market_uid = object::new(ctx);
         let market_id = object::uid_to_inner(&market_uid);
@@ -88,106 +69,93 @@ module prediction_market::defi_prediction_market {
             id: market_uid,
             name,
             resolved: false,
-            creator: market_owner_address,
-            yes_pool: balance::zero(),
-            no_pool: balance::zero(),
+            creator: owner,
+            balance: balance::zero(),
+            winner: owner,
+            max_bet: 0,
+            users: table::new(ctx),
             resolution: none(),
-            started_at: clock::timestamp_ms(clock),
+            started_at: clock::timestamp_ms(c),
             resolved_at: none()
         };
 
-        let market_owner_id = object::new(ctx);
-
         let market_owner = MarketOwnerCap {
-            id: market_owner_id,
+            id: object::new(ctx),
             market_id
         };
 
-        vector::push_back<address>(&mut address_vector.addresses, market_owner_address);
-
         transfer::share_object(market);
-        transfer::transfer(market_owner, market_owner_address);
+        transfer::transfer(market_owner, owner);
     }
 
-    public entry fun place_bet(
-        bet: bool,
-        amount: Coin<SUI>,
+    public fun place_bet(
         market: &mut PredictionMarket,
-        clock: &Clock,
+        c: &Clock,
+        amount: Coin<SUI>,
         ctx: &mut TxContext
-    ) {
+    ) : Position {
         assert!(!market.resolved, EMarketAlreadyResolved);
+        assert!(coin::value(&amount) > market.max_bet, EInsufficientBalance);
+        assert!(!table::contains(&market.users, sender(ctx)), EAlreadyBet);
+        // set the winner 
+        market.winner = sender(ctx);
+        table::add(&mut market.users, sender(ctx), true);
 
         let bet_amount = coin::value(&amount);
-        let better_address = tx_context::sender(ctx);
+        market.max_bet = bet_amount;
 
-        if (bet) {
-            balance::join(&mut market.yes_pool, coin::into_balance(amount));
-        } else {
-            balance::join(&mut market.no_pool, coin::into_balance(amount));
-        }
+        balance::join(&mut market.balance, coin::into_balance(amount));
 
         let position = Position {
             id: object::new(ctx),
-            owner: better_address,
             market: object::uid_to_inner(&market.id),
-            bet,
+            owner: sender(ctx),
             amount: bet_amount,
-            placed_at: clock::timestamp_ms(clock)
+            placed_at: clock::timestamp_ms(c)
         };
-
-        transfer::share_object(position);
+        position
     }
 
-    public entry fun resolve_market(
+    public fun resolve_market(
         _: &AdminCap,
-        resolution: bool,
-        market: &mut PredictionMarket,
-        clock: &Clock,
+        market: PredictionMarket,
         ctx: &mut TxContext
     ) {
         assert!(!market.resolved, EMarketAlreadyResolved);
-
-        market.resolved = true;
-        market.resolution = some(resolution);
-        market.resolved_at = some(clock::timestamp_ms(clock));
-
-        if (resolution) {
-            transfer::public_transfer(coin::from_balance(market.yes_pool, ctx), market.creator);
-        } else {
-            transfer::public_transfer(coin::from_balance(market.no_pool, ctx), market.creator);
-        }
+        
+        let PredictionMarket {
+            id,
+            name: _,
+            resolved: _,
+            creator: _,
+            balance: balance_,
+            winner: winner_,
+            max_bet: _,
+            users: users_table,
+            resolution: _,
+            started_at: _,
+            resolved_at: _
+        } = market;
+        // delete the share object 
+        object::delete(id);
+        // convert balance to coin
+        let coin_ = coin::from_balance(balance_, ctx);
+        // transfer to winner
+        transfer::public_transfer(coin_, winner_);
+        // destroy the table
+        table::destroy_empty(users_table);
+    }
+    
+    // =================== Public view functions ===================
+    public fun get_total_balance(self: &PredictionMarket) : u64 {
+        balance::value(&self.balance)
     }
 
-    public entry fun claim_winnings(
-        position: &mut Position,
-        market: &mut PredictionMarket,
-        clock: &Clock,
-        ctx: &mut TxContext
-    ) {
-        assert!(market.resolved, EMarketNotResolved);
-        assert!(position.owner == tx_context::sender(ctx), ENotMarketOwner);
-
-        let winnings = if (position.bet == market.resolution.unwrap()) {
-            position.amount
-        } else {
-            0
-        };
-
-        if (winnings > 0) {
-            let winnings_balance = if (position.bet) {
-                coin::take(&mut market.yes_pool, winnings, ctx)
-            } else {
-                coin::take(&mut market.no_pool, winnings, ctx)
-            };
-
-            transfer::public_transfer(winnings_balance, tx_context::sender(ctx));
-        }
-
-        object::delete(position);
+    public fun get_max_bet(self: &PredictionMarket) : u64 {
+        self.max_bet
     }
 
-    public entry fun get_market_details(market: &PredictionMarket): (bool, u64, u64, Option<bool>) {
-        (market.resolved, balance::value(&market.yes_pool), balance::value(&market.no_pool), market.resolution)
+    public fun get_winner(self: &PredictionMarket) : address {
+        self.winner
     }
 }
